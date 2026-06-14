@@ -121,20 +121,23 @@ Results (`-Os`, msp430-gcc 9.3.1.11, MCLK = SMCLK = 8 MHz,
 
 > Baseline (marker overhead, subtracted from every row): 17 cycles ≈ 2.13 µs; LA cross-check 2.25 µs.
 
-**LA cross-check** (Saleae on P1.2, 24 MS/s, 2026-06-13): the logic
-analyzer independently confirms the timer figures. Measured pulse
-widths — baseline 2.25 µs (the marker overhead itself), **yield 29 µs**,
-**sem_give→waiter 50 µs** — match `bench µs` to within a few µs. The LA
-reads slightly high because the kernel records the **minimum** of 32
-samples while the wire shows a *typical* pulse, and the 1 kHz tick ISR
-(~15 µs) widens some samples (the spread you see across a burst — the
-narrowest pulse lands on `bench µs`). Pulse *period* = ON + inter-sample
-gap (e.g. yield 58.75 µs = 29 µs + ~30 µs for the peer to yield back).
-Only yield and sem_wake are individually resolvable on the one-shot
-signal: `q_send`/`q_recv`/`mutex`/`tick_0` run back-to-back with no gap
-and smear into one mixed burst (the `—` rows). A per-metric replay mode
-(one clean pulse each, gap-separated) would fill them — see git history
-if enabled.
+**LA cross-check** (Saleae on P1.2, 24 MS/s): the logic analyzer
+independently confirms every timer figure. Per-metric **index blips**
+(1 = baseline … 8 = tick_8, emitted by `bench_sep()` in
+`bench/bench.c`) make all eight bursts individually resolvable — count
+the leading blips to identify a metric, then measure the **narrowest**
+ON pulse of its burst (the `LA µs` column). Measure pulse *width*, not
+period: the period adds the inter-sample gap (e.g. yield 58.75 µs =
+27.67 µs ON + ~31 µs for the peer to yield back). The kernel records
+the minimum of 32 samples; the 1 kHz tick ISR widens some, which is the
+spread across a burst — hence "narrowest".
+
+The standout result: **`LA µs − bench µs` is a near-constant ~+2.4 µs
+across every metric** — precisely the fixed marker overhead (the
+baseline) that the P1.2 pulse includes but `bench-read` subtracts. So
+**`LA µs ≈ bench µs + baseline`**: the wire confirms both the
+per-operation timing *and* that its overhead equals the subtracted
+constant, validating the measurement methodology end to end.
 
 Reading these: cycles run ~2–4× the sim instruction counts — expected
 (MSP430 ops take 1–6 cycles and FRAM adds wait states). YIELD and
