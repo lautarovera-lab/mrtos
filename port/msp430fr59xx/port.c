@@ -152,11 +152,23 @@ void port_start(void)
 }
 
 /* ------------------------------------------------------------------ */
-/* Idle: LPM0 keeps SMCLK (tick) alive; any ISR wakes the CPU and the   */
-/* scheduler decides on RETI. Idle's saved SR carries CPUOFF, so when   */
-/* idle is re-scheduled it transparently re-enters LPM0.                */
+/* Idle: LPM3. The tick runs from ACLK (LFXT), which survives LPM3, so  */
+/* the periodic tick keeps the kernel time base exact while the CPU and */
+/* SMCLK/DCO are off between ticks - this is what drops the idle floor  */
+/* from LPM0's ~277 uA to the LPM3 single-digit-uA range. Any interrupt */
+/* (the ACLK tick, or a peripheral such as the button) wakes the CPU -  */
+/* MCLK/DCO restart automatically to run the ISR - and the scheduler    */
+/* decides on RETI; idle's saved SR carries the LPM3 bits, so being     */
+/* re-scheduled transparently re-enters LPM3. LPM4 is intentionally NOT */
+/* used: it stops ACLK and would freeze the tick.                       */
+/*                                                                      */
+/* NOTE: this still wakes every tick (1024 Hz). Honoring a dynamic      */
+/* mrtos_pm_max_lpm() cap and suppressing the between-deadline ticks    */
+/* (true tickless, mrtos_next_deadline/mrtos_tick_advance) both need    */
+/* idle restructured to re-evaluate on each sleep - tracked as the next */
+/* increment, gated on the measured LPM3-idle current.                  */
 /* ------------------------------------------------------------------ */
 void port_idle(void)
 {
-    __bis_SR_register(LPM0_bits);
+    __bis_SR_register(LPM3_bits);
 }

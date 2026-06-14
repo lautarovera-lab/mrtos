@@ -108,7 +108,11 @@ existing semantics or tests change. The pieces:
    program the compare register `d` ticks ahead (capped at the 16-bit
    horizon — re-arm on wrap, harmless); enter **LPM3**; on wake (timer
    *or any application ISR*), read elapsed ticks from the counter and
-   fold them in one call.
+   fold them in one call. **(increment 2 done — plain LPM3, tick still
+   periodic: measured 130 µA MCU baseline, down from 277 µA, ~2×. The
+   per-tick wake — DCO restart + `mrtos_tick` ~1024×/s — dominates, so
+   the periodic-tick LPM3 alone is not enough; suppressing the
+   between-deadline ticks is increment 3, justified by this number.)**
 4. **New kernel entry `mrtos_tick_advance(n)`**: subtract `n` from the
    head delta, pop everything that reaches zero, adjust `tick_count`
    by `n`. This is the only new kernel logic (~25 lines) and is fully
