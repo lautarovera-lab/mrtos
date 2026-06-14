@@ -114,15 +114,15 @@ void port_yield_isr(void)
 /* ------------------------------------------------------------------ */
 /* Tick timer + first task launch.                                      */
 /* ------------------------------------------------------------------ */
-#define PORT_TICK_CYCLES  (PORT_TIMER_HZ / MRTOS_CFG_TICK_HZ)
+#define PORT_TICK_CYCLES  (PORT_TICK_CLK_HZ / MRTOS_CFG_TICK_HZ)
 #if (PORT_TICK_CYCLES < 2) || (PORT_TICK_CYCLES > 65534)
-#error "Tick period out of range for 16-bit Timer_A; adjust TICK_HZ/SMCLK"
+#error "Tick period out of range for 16-bit Timer_A; adjust TICK_HZ/ACLK"
 #endif
-#if (PORT_TIMER_HZ % MRTOS_CFG_TICK_HZ) != 0
+#if (PORT_TICK_CLK_HZ % MRTOS_CFG_TICK_HZ) != 0
 /* A truncated divider would make every tick slightly short - the
  * kernel's time base would run fast with no visible error anywhere.
- * Pick a TICK_HZ that divides SMCLK/8 exactly. */
-#error "SMCLK/8 is not an integer multiple of TICK_HZ; tick would drift"
+ * Pick a TICK_HZ that divides ACLK exactly (e.g. 32768/1024 = 32). */
+#error "ACLK is not an integer multiple of TICK_HZ; tick would drift"
 #endif
 
 static void port_tick_timer_init(void)
@@ -131,7 +131,7 @@ static void port_tick_timer_init(void)
     TA0CCTL0 = CCIE;                           /* tick                     */
     TA0CCR1  = 0xFFFFu;                        /* unreachable in up mode:  */
     TA0CCTL1 = CCIE;                           /* CCIFG = software-only    */
-    TA0CTL   = TASSEL__SMCLK | ID__8 | MC__UP | TACLR;
+    TA0CTL   = TASSEL__ACLK | MC__UP | TACLR;  /* ACLK, up mode, no divider */
 }
 
 __attribute__((naked, noreturn)) static void port_launch_first(void)

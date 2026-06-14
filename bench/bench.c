@@ -265,10 +265,17 @@ static void bench_board_init(void)
     PJOUT = 0; PJDIR = 0xFF;
     PM5CTL0 &= ~LOCKLPM5;
 
-    /* DCO = MCLK = SMCLK = 8 MHz (0 FRAM wait states), ACLK = VLO. */
+    /* DCO = MCLK = SMCLK = 8 MHz (0 FRAM wait states); ACLK = LFXT
+     * 32768 crystal (the kernel tick source). LFXIN/LFXOUT = PJ.4/PJ.5. */
+    PJSEL0 |= BIT4 | BIT5;
     CSCTL0_H = CSKEY_H;
     CSCTL1   = DCOFSEL_3 | DCORSEL;
-    CSCTL2   = SELA__VLOCLK | SELS__DCOCLK | SELM__DCOCLK;
+    CSCTL4  &= ~LFXTOFF;
+    do {
+        CSCTL5 &= ~LFXTOFFG;
+        SFRIFG1 &= ~OFIFG;
+    } while (SFRIFG1 & OFIFG);
+    CSCTL2   = SELA__LFXTCLK | SELS__DCOCLK | SELM__DCOCLK;
     CSCTL3   = DIVA__1 | DIVS__1 | DIVM__1;
     CSCTL0_H = 0;
 

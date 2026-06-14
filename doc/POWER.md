@@ -97,10 +97,13 @@ existing semantics or tests change. The pieces:
    delta — the delta-list design pays off again. New kernel helper:
    `mrtos_next_deadline()` → head delta, or "none" if no task has a
    timeout pending. **(done — kernel half)**
-2. **Timer moves to ACLK** (32.768 kHz crystal on the LaunchPad, VLO
-   fallback) so it survives LPM3. Natural tick becomes **1024 Hz**
-   (`32768/32`), keeping `MRTOS_MS` integer-exact for powers of two;
-   the 4d compile-time divisibility guard already enforces sanity.
+2. **Timer moves to ACLK** (32.768 kHz LFXT crystal on the LaunchPad)
+   so it survives LPM3. Natural tick becomes **1024 Hz** (`32768/32`),
+   keeping `MRTOS_MS` integer-exact for powers of two; the 4d
+   compile-time divisibility guard already enforces sanity. **(done —
+   port half, increment 1: TA0 on ACLK, LFXT bring-up in `board_init`,
+   verified on silicon — still LPM0 idle.)** The crystal also fixes the
+   +0.66 % DCO offset seen in T2.
 3. **`port_idle()` becomes**: compute `d = mrtos_next_deadline()`;
    program the compare register `d` ticks ahead (capped at the 16-bit
    horizon — re-arm on wrap, harmless); enter **LPM3**; on wake (timer

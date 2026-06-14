@@ -45,12 +45,19 @@ static void board_init(void)
     PJOUT = 0; PJDIR = 0xFF;
     PM5CTL0 &= ~LOCKLPM5;
 
-    /* DCO = 8 MHz, MCLK = SMCLK = DCO, ACLK = VLO. 0 FRAM wait states. */
-    CSCTL0_H = CSKEY_H;
+    /* DCO = 8 MHz (MCLK = SMCLK); ACLK = LFXT 32768 crystal so the tick
+     * timer survives LPM3. LFXIN/LFXOUT = PJ.4/PJ.5. 0 FRAM wait states. */
+    PJSEL0 |= BIT4 | BIT5;                  /* PJ.4/PJ.5 -> crystal pins */
+    CSCTL0_H = CSKEY_H;                     /* unlock CS                 */
     CSCTL1   = DCOFSEL_3 | DCORSEL;
-    CSCTL2   = SELA__VLOCLK | SELS__DCOCLK | SELM__DCOCLK;
+    CSCTL4  &= ~LFXTOFF;                    /* enable LFXT               */
+    do {                                   /* wait out the crystal fault */
+        CSCTL5 &= ~LFXTOFFG;
+        SFRIFG1 &= ~OFIFG;
+    } while (SFRIFG1 & OFIFG);
+    CSCTL2   = SELA__LFXTCLK | SELS__DCOCLK | SELM__DCOCLK;
     CSCTL3   = DIVA__1 | DIVS__1 | DIVM__1;
-    CSCTL0_H = 0;
+    CSCTL0_H = 0;                           /* lock CS                   */
 
     /* S1 = P5.6: input, pull-up, falling edge interrupt. */
     P5DIR &= ~BIT6;
