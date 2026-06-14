@@ -47,8 +47,16 @@ bench_fr5994.elf: $(BENCH_SRCS)
 	$(CC) $(CFLAGS) -DBENCH_TARGET $(LDFLAGS) -o $@ $(BENCH_SRCS)
 	$(GCC_DIR)/bin/msp430-elf-size $@
 
+# Idle-dominated "sensor node" image: one task, 1 s real-time deadline,
+# tickless LPM3 idle in between. The power/determinism demo (POWER.md S3).
+IDLE_SRCS = kernel/mrtos.c port/msp430fr59xx/port.c app/main_idle_demo.c
+
+idle_demo.elf: $(IDLE_SRCS)
+	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $(IDLE_SRCS)
+	$(GCC_DIR)/bin/msp430-elf-size $@
+
 clean:
-	rm -f mrtos_fr5994.elf bench_fr5994.elf
+	rm -f mrtos_fr5994.elf bench_fr5994.elf idle_demo.elf
 
 # ------------------------------------------------------------------ #
 # On-target run & debug (LaunchPad MSP-EXP430FR5994, onboard eZ-FET). #
@@ -82,6 +90,10 @@ flash: attach mrtos_fr5994.elf
 # Program, reset and let it run free (mspdebug releases on exit).
 run: attach mrtos_fr5994.elf
 	$(MSPDEBUG) $(MSPDEBUG_DRV) "prog mrtos_fr5994.elf" "reset"
+
+# Same, for the idle-dominated sensor-node demo.
+idle-run: attach idle_demo.elf
+	$(MSPDEBUG) $(MSPDEBUG_DRV) "prog idle_demo.elf" "reset"
 
 # GDB server on :$(GDB_PORT). Programs first, then serves until ^C
 # (gdb_loop keeps it alive across client reconnects).
@@ -141,4 +153,4 @@ bench-read: attach bench_fr5994.elf
 	          } }'; \
 	  kill $$srv 2>/dev/null; wait $$srv 2>/dev/null || true
 
-.PHONY: clean attach flash run gdbserver gdb debug energy bench-target bench-read
+.PHONY: clean attach flash run idle-run gdbserver gdb debug energy bench-target bench-read

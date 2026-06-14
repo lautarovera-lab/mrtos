@@ -208,6 +208,24 @@ The third row is where the RTOS should *beat* baremetal, not just tie:
 under concurrent load the superloop must interleave by hand, the
 kernel overlaps by construction.
 
+**mRTOS side, first data point (the row-1 / row-2 claims, 2026-06-15).**
+`app/main_idle_demo.c` (`make idle_demo.elf` / `make idle-run`) is the
+idle-dominated half: one task on a 1 s deadline, tickless LPM3 idle in
+between. EnergyTrace over 40 s + the deadline log read from silicon:
+
+- **Average current 1.31 µA** — at the ammeter indistinguishable from a
+  superloop (99× under the periodic-tick LPM3 idle, 211× under LPM0),
+  100 % of samples < 5 µA.
+- **Deadline met exactly:** 64/64 periods = 1024 ticks = 1.000 s,
+  **jitter 0, drift 0** (`now_last == n·1024`). Real-time determinism is
+  *not* traded away for the deep sleep.
+
+Figure: [doc/results/2026-06-15/energy_tickless.png](results/2026-06-15/energy_tickless.png)
+(`uv run tools/plot_tickless.py`, raw trace gzipped alongside). The
+no-RTOS superloop running the *same* workload is the next step — this is
+the number it has to match on power while the kernel already wins on the
+concurrent-load rows.
+
 ## 4. Sequencing
 
 1. **2.1 tickless idle** — **done.** Kernel half (`mrtos_next_deadline`,
