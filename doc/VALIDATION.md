@@ -173,7 +173,8 @@ Flash & run: `make run` (see `doc/DEBUG.md` for one-time setup;
 | T5 | Queue under preemption | Debugger: watch `cons_checksum` | Strictly increasing by n(n+1)/2 pattern (sum of 0,1,2,…); producer/consumer at equal prio time-slice correctly |
 | T6 | Soak | Leave running ≥ 1 h with periodic S1 presses | Still responsive; LED1 still 1 Hz; `cons_checksum` still advancing |
 | T7 | Stack guard | Test build: a task corrupts its own `stack_base[0]` then busy-spins; debugger breaks on the hook (see note) | Execution traps in `mrtos_stack_overflow_hook` with `t->name` identifying the task |
-| T8 | Low power | **EnergyTrace**: `make energy DUR=30`, no button activity (restarts the target — run after T6); plot with `uv run tools/plot_energy.py` (LED-off phase = MCU baseline) | Average current consistent with LPM0 idle (CPU mostly asleep, wakes 1000×/s for tick); record the value — it is the baseline for the tickless comparison |
+| T8 | Tickless LPM3 residency | **EnergyTrace**: `make energy DUR=30`, no button activity (restarts the target — run after T6); plot with `uv run tools/plot_energy.py`. The demo app's 10 Hz `prod`/`cons` duty dominates the LED-off average, so the *idle floor* (single-digit µA) is only visible in an idle-dominated build — measure the floor as the low percentiles of the LED-off samples, or temporarily neuter `prod`/`cons` and slow `blink` to ~2 s | Idle floor single-digit µA (CPU in LPM3 between deadlines, **no** 1000×/s tick wake), well under the 277 µA (LPM0) / 130 µA (periodic-tick LPM3) references |
+| T8b | Sleep race / wake accounting | Synthetic "button storm": free-running TA1 ISR (off ACLK) gives `btn_sem` every ~7.7 ms, asynchronous to the task deadlines (`-DSTRESS_STORM` build); read `tick_count` (as a **variable**, not via an `mrtos_now()` inferior call — that returns garbage on a halted LPM target) once per flash and compare to wall time | Over ≥15 s: `tick_count` tracks wall-clock within the gdb-halt latency (no lost ticks across early wakes); every storm IRQ serviced (no hang); one idle arm per wake (no spin); `cons_checksum` and the 1 Hz LED stay correct |
 
 Procedure notes from the first bench run (2026-06-12):
 
@@ -207,6 +208,13 @@ Procedure notes from the first bench run (2026-06-12):
 | T6 | **PASS** | > 1 h running: LED1 steady, S1 responsive |
 | T7 | **PASS** | hook hit with `t = tcb_blink` ("blink"), `guard[0]=0, guard[1]=0x5afe` observed in the debugger |
 | T8 | **PASS** | EnergyTrace 30 s / 114k samples: **MCU baseline 277 µA** (LED-off phase) — consistent with LPM0 floor + 1 kHz tick. Whole-board avg 1806 µA is LED1-dominated (LED ≈ 2.9 mA when lit, 50 % duty). Profile archived: [doc/results/2026-06-13/t8-energy-profile.png](results/2026-06-13/t8-energy-profile.png) (raw trace gzipped alongside). **277 µA is the tickless-comparison baseline** |
+
+#### Increment 3 — tickless idle (2026-06-15, msp430-gcc 9.3.1.11)
+
+| # | Result | Measurement |
+|---|---|---|
+| T8 | **PASS** | Idle floor single-digit µA. Clean A/B in an idle-dominated build (only `blink`@2 s, idle ≈ 99 %), identical board, EnergyTrace 20 s: **periodic-tick LPM3 (increment 2) = 46.4 µA median (flat); tickless (increment 3) = 3.1 µA median / 1.1 µA p10**, 60 % of LED-off samples < 5 µA — at the LPM3 hardware floor, matching a superloop, ~15× under the periodic-tick idle and 60–90× under the 277/130 µA references. In the full demo app the idle floor is masked by the 10 Hz `prod`/`cons` duty (legitimate work; each tickless wake also pays a one-shot ~300 µA FLL re-lock after the long DCO-off span). `dbg_periodic_tick = 0` confirmed zero between-deadline wakes. |
+| T8b | **PASS** | Sleep-race / wake-accounting under a 130 Hz asynchronous storm (`-DSTRESS_STORM`, TA1 ISR → `btn_sem`): `tick_count` = 14936 at 15.03 s wall (expect 15392; deficit = gdb-halt latency) → **no lost ticks across 474 early + 1114 planned wakes**; `dbg_storm` = 1896 (≈ 1898 expected, no dropped IRQs / no hang); `dbg_arm_count` = 1589 = early+planned+1 (one wake per arm, no spin); `cons_checksum` advancing. The early-wake path the storm exercises is the same one a real S1 press takes, so T3/T4 are covered by construction. |
 
 Bonus data — stack high-water marks on silicon (96-word stacks, incl.
 guards): blink 34, ui 36, prod 35, cons 41 words used. Consistent with
