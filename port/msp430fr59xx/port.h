@@ -6,7 +6,8 @@
  * - Context = R4..R15 saved as full 20-bit registers (PUSHM.A/POPM.A) on the
  *   task stack, below the hardware interrupt frame (SR+PC packed per SLAU367:
  *   PC[15:0] pushed first, then SR with PC[19:16] in bits 15:12).
- * - Tick: Timer_A0 CCR0 (TIMER0_A0_VECTOR), up mode, SMCLK/8.
+ * - Tick: Timer_A0 CCR0 (TIMER0_A0_VECTOR), up mode, ACLK (LFXT 32768).
+ *   ACLK keeps running in LPM3, which is what makes tickless idle work.
  * - Yield: software-pended interrupt on TA0 CCR1 (TIMER0_A1_VECTOR).
  *   TA0CCR1 is parked at 0xFFFF, unreachable in up mode, so its CCIFG can
  *   only be set by software -> behaves like Cortex-M PendSV.
@@ -40,13 +41,18 @@ void          port_idle(void);
 /* Port configuration defaults (override in mrtos_config.h)             */
 /* ------------------------------------------------------------------ */
 #ifndef PORT_CFG_SMCLK_HZ
-#define PORT_CFG_SMCLK_HZ        8000000UL
+#define PORT_CFG_SMCLK_HZ        8000000UL    /* CPU/peripheral clock (FYI) */
+#endif
+#ifndef PORT_CFG_ACLK_HZ
+#define PORT_CFG_ACLK_HZ         32768UL      /* LFXT crystal; tick source  */
 #endif
 #ifndef PORT_CFG_ISR_STACK_WORDS
 #define PORT_CFG_ISR_STACK_WORDS 96u
 #endif
 
-/* Timer_A0 clocked from SMCLK/8. */
-#define PORT_TIMER_HZ   (PORT_CFG_SMCLK_HZ / 8u)
+/* The tick timer (TA0) runs from ACLK so it survives LPM3 (tickless
+ * idle). 1 ACLK count = 1/PORT_CFG_ACLK_HZ s; board_init() must source
+ * ACLK from a stable PORT_CFG_ACLK_HZ oscillator (LFXT on the LaunchPad). */
+#define PORT_TICK_CLK_HZ   PORT_CFG_ACLK_HZ
 
 #endif /* PORT_H */
