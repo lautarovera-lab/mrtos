@@ -111,13 +111,15 @@ Results (`-Os`, msp430-gcc 9.3.1.11, MCLK = SMCLK = 8 MHz,
 
 | Metric | Cycles | bench µs | LA µs | sim insns |
 |---|---|---|---|---|
-| one-way context switch (yield) | 202 | 25.25 | 29 | 52 |
-| sem_give → waiter running | 367 | 45.88 | 50 | 132 |
-| queue send (poll) | 158 | 19.75 | — | 78 |
-| queue recv (poll) | 157 | 19.63 | — | 79 |
-| mutex lock + unlock | 289 | 36.13 | — | 73 |
-| tick, no sleepers | 118 | 14.75 | — | 45 |
-| tick, 8 sleepers | 139 | 17.38 | — | 56 |
+| one-way context switch (yield) | 202 | 25.25 | 27.67 | 52 |
+| sem_give → waiter running | 367 | 45.88 | 48.42 | 132 |
+| queue send (poll) | 158 | 19.75 | 22.12 | 78 |
+| queue recv (poll) | 157 | 19.63 | 22.00 | 79 |
+| mutex lock + unlock | 289 | 36.13 | 38.62 | 73 |
+| tick, no sleepers | 118 | 14.75 | 17.08 | 45 |
+| tick, 8 sleepers | 139 | 17.38 | 19.75 | 56 |
+
+> Baseline (marker overhead, subtracted from every row): 17 cycles ≈ 2.13 µs; LA cross-check 2.25 µs.
 
 **LA cross-check** (Saleae on P1.2, 24 MS/s, 2026-06-13): the logic
 analyzer independently confirms the timer figures. Measured pulse
