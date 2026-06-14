@@ -275,7 +275,8 @@ covers, per item: boot + tick liveness (LED1 at 1 Hz), tick accuracy
 on a scope (±1 %), the ISR→semaphore path via S1 (T3), the deferred
 yield under ISR load (T4), queue traffic under genuine time-slice
 preemption observed through `cons_checksum` (T5), a one-hour soak
-(T6), the stack-guard trap (T7), and LPM0 idle current (T8).
+(T6), the stack-guard trap (T7), tickless LPM3 idle current (T8), and
+the sleep-race / wake-accounting proof under a synthetic storm (T8b).
 
 T4 deserves emphasis: it is the *only* line in the entire validation
 program that exercises `mrtos_sem_give()` from a real ISR with the

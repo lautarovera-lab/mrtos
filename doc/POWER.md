@@ -105,14 +105,22 @@ existing semantics or tests change. The pieces:
    verified on silicon — still LPM0 idle.)** The crystal also fixes the
    +0.66 % DCO offset seen in T2.
 3. **`port_idle()` becomes**: compute `d = mrtos_next_deadline()`;
-   program the compare register `d` ticks ahead (capped at the 16-bit
-   horizon — re-arm on wrap, harmless); enter **LPM3**; on wake (timer
-   *or any application ISR*), read elapsed ticks from the counter and
-   fold them in one call. **(increment 2 done — plain LPM3, tick still
-   periodic: measured 130 µA MCU baseline, down from 277 µA, ~2×. The
-   per-tick wake — DCO restart + `mrtos_tick` ~1024×/s — dominates, so
-   the periodic-tick LPM3 alone is not enough; suppressing the
-   between-deadline ticks is increment 3, justified by this number.)**
+   program `TA0CCR0 = 32·d − 1` *without* `TACLR` (the live count is the
+   sub-tick phase — counting forward to the new limit preserves it, no
+   phase loss), capped at `0xFFFF/32 = 2047` ticks so the parked CCR1
+   yield (`0xFFFF`) stays unreachable — re-arm on the cap, harmless;
+   enter the deepest LPM the pm cap allows (LPM3 default); on wake read
+   elapsed ticks from the counter and fold them in one call. **(increment 2
+   done — plain LPM3, tick still periodic: 130 µA MCU baseline, ~2× under
+   LPM0. increment 3 done — between-deadline ticks suppressed: idle floor
+   drops to single-digit µA, matching a superloop. Clean A/B in an
+   idle-dominated config, identical board: periodic-tick LPM3 idle = 46 µA
+   flat, tickless idle = 3 µA median / 1.1 µA p10 — the per-tick DCO
+   restart + `mrtos_tick` ~1024×/s was indeed the whole floor, ~15× gone.
+   In the demo app the 10 Hz `prod`/`cons` duty cycle dominates the
+   LED-off average — that is application work, not idle overhead; each
+   tickless wake also pays a one-shot FLL re-lock after the long DCO-off
+   span, visible as a ~300 µA spike per prod wake.)**
 4. **New kernel entry `mrtos_tick_advance(n)`**: subtract `n` from the
    head delta, pop everything that reaches zero, adjust `tick_count`
    by `n`. This is the only new kernel logic (~25 lines) and is fully
@@ -124,15 +132,31 @@ existing semantics or tests change. The pieces:
    pure event-driven case — *zero* spontaneous wakes, indistinguishable
    from a superloop at the ammeter.
 
-Expected result for an idle-dominated application: average current
-drops from ~100 µA-class to **single-digit µA**, tick CPU overhead in
-active phases unchanged (45 instructions, measured).
+Result for an idle-dominated application (measured, increment 3): idle
+floor drops from the periodic-tick LPM3 **46 µA** to **3 µA median
+(1.1 µA p10)** — single-digit, at the LPM3 hardware floor, with tick CPU
+overhead in active phases unchanged (45 instructions, measured).
 
 The race to prove on silicon (the classic one): an interrupt that
 fires between "decided to sleep" and the LPM entry instruction must
 not be lost — on MSP430 this is handled by entering LPM with a single
-`BIS SR` whose GIE+CPUOFF bits apply atomically, but it must be
-*demonstrated*, not assumed → new on-target checklist items.
+`BIS SR` whose GIE+CPUOFF bits apply atomically. **(increment 3 done,
+demonstrated.)** The harder race is reconciliation: an *early* wake (a
+peripheral readies a task mid-sleep) switches context to the woken task
+in-ISR, before any post-sleep idle code could run. Resolved by
+reconciling **in the timer ISRs**, not in idle: the CCR0 tick handler
+folds the full armed span on a planned wake; the CCR1 yield handler
+unwinds from the live counter on an early wake (whole ticks folded, the
+sub-tick remainder carried in a static so the clock cannot creep slow
+across many short idle entries). Idle is re-entered by clearing the LPM
+bits in its saved frame on the ISR return-to-idle, so its loop re-reads
+the deadline and pm cap each sleep instead of re-sleeping on a stale SR.
+Proven under a synthetic 130 Hz asynchronous "button storm" (a free-running
+TA1 ISR giving a semaphore, exercising the exact early-wake path a real
+S1 press takes): over a 15 s window the kernel clock tracked wall-clock
+to within the gdb-halt latency (no lost ticks), every storm IRQ was
+serviced (no hang), one wake per idle arm (no spin), and `tick_count`,
+`cons_checksum` and the 1 Hz LED all stayed correct.
 
 ### 2.2 SRAM strategy (no code change, documentation + app guidance)
 
@@ -186,16 +210,17 @@ kernel overlaps by construction.
 
 ## 4. Sequencing
 
-1. **2.1 tickless idle** — kernel half **done** (`mrtos_next_deadline`,
+1. **2.1 tickless idle** — **done.** Kernel half (`mrtos_next_deadline`,
    `mrtos_tick_advance`, host+sim tested in `test_unit_tickless`); port
-   half next (ACLK timer, LPM3 `port_idle`, on-target checklist items
-   for the sleep race and wake accounting).
+   half increments 1 (ACLK tick), 2 (LPM3 idle), 3 (tick suppression +
+   pm-cap honoring, sleep-race + wake-accounting proven on silicon).
 2. **2.3 power locks** — **done** (`mrtos_pm_lock/unlock/max_lpm`);
    consumed by the port half's `port_idle`.
 3. **2.2** — documentation + soak-data stack table in the manual.
 4. **§3 benchmark** — at the bench, after T1–T8 pass on the current
    LPM0 build (the comparison needs a working baseline anyway).
 
-T8 of the validation checklist ("current consistent with LPM0 idle")
-becomes obsolete on the day 2.1 merges and is replaced by an LPM3
-residency criterion.
+T8 of the validation checklist, originally "current consistent with
+LPM0 idle", is now an LPM3 **tickless-residency** criterion: single-digit
+µA idle floor with the between-deadline ticks suppressed, plus the
+sleep-race / wake-accounting checks. See VALIDATION.md.

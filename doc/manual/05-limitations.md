@@ -97,25 +97,25 @@ These are silicon facts the port obeys; they bind applications too:
 - **8 priority levels / 16-bit timeouts / 32-bit tick counter:**
   consequences spelled out in §2.1 and §2.9.
 
-## 5.6 No tickless idle (yet — kernel half landed)
+## 5.6 Tickless idle — done (MSP430FR59xx port)
 
-**What:** the shipped `port_idle()` still idles in LPM0 with the tick
-firing 1000×/s. The *kernel* support for tickless is in place
-(`mrtos_next_deadline`, `mrtos_tick_advance`, power locks — §2.7/§2.8,
-tested in `test_unit_tickless`); a tickless `port_idle()` is not yet
-written.
+**What:** the FR59xx `port_idle()` suppresses the between-deadline ticks
+and sleeps in LPM3 straight to the next deadline (or until a peripheral
+ISR), honoring the `mrtos_pm_max_lpm()` depth cap. Built on the kernel
+half (`mrtos_next_deadline`, `mrtos_tick_advance`, power locks — §2.7/§2.8,
+tested in `test_unit_tickless`). See §4.5 for the mechanism.
 
-**Why the rest is deferred:** the remaining work is the port half —
-reprogram the wake timer on ACLK, enter LPM3, reconcile elapsed time
-on wake, and prove the LPM-entry interrupt race on silicon. Tracked in
-`doc/POWER.md` §2.1. The structure was always ready: the delta list's
-head *is* the next deadline, and the idle-resume path needs no special
-casing (§4.5).
+**Result:** idle floor **≈ 1–3 µA** (single-digit, at the LPM3 hardware
+floor), down from the periodic-tick LPM3 idle's ~46 µA and the original
+LPM0 277 µA — a clean on-silicon A/B and the sleep-race / no-lost-ticks
+proof are in VALIDATION.md (T8/T8b).
 
-**Cost today:** idle floor is LPM0 + 1 kHz wakeups — measured at
-**277 µA** on the FR5994 LaunchPad (T8). For battery products,
-Timer_A-on-ACLK + LPM3 tickless is the single highest-value extension,
-targeting single-digit µA.
+**Residual characteristic (not a bug):** each tickless wake pays a
+one-shot FLL re-lock (~300 µA spike) after a long DCO-off span, so a
+high duty-cycle app (many wakes/s) sees that per-wake cost rather than
+the idle floor; the win is largest for genuinely idle-dominated, low
+duty-cycle workloads — the target use case. The cooperative POSIX/sim
+ports keep their periodic-tick idle (the suppression is target-only).
 
 ## 5.7 Cooperative test ports — verification gap
 

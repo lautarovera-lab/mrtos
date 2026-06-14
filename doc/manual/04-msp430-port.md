@@ -103,16 +103,48 @@ toolchain-sensitive; it compiles cleanly on msp430-elf-gcc 9.3.1
 (move the ISR bodies to a `.S` file and place vectors via
 `.section __interrupt_vector_<n>`) should a future toolchain reject it.
 
-## 4.5 Idle and low power
+## 4.5 Idle and low power (tickless LPM3)
 
-`port_idle()` executes LPM0 (`CPUOFF` set in SR): CPU stops, SMCLK
-keeps running, so the tick keeps firing. The elegant part: when the
-idle task is preempted, its *saved* SR contains `CPUOFF`, so merely
-rescheduling idle re-enters sleep through the ordinary `RETI` path —
-no special-case "go back to sleep" code anywhere.
+The tick runs from **ACLK (LFXT 32.768 kHz)**, which survives LPM3, at
+**1024 Hz** (`32768/32`, 32 counts per tick). `port_idle()` sleeps the
+CPU straight to the next pending deadline instead of waking every tick:
 
-Going deeper (LPM3 with Timer_A on ACLK, tickless) is compatible with
-the architecture but not implemented — see §5.6.
+1. Read `d = mrtos_next_deadline()` (ticks to the earliest wake; 0 = no
+   timeout pending) and the depth cap `mrtos_pm_max_lpm()`.
+2. Program `TA0CCR0 = 32·d − 1` **without** `TACLR` — the live counter
+   *is* the sub-tick phase, so counting forward to the new limit keeps
+   the clock phase-exact. `d` is capped at `0xFFFF/32 = 2047` ticks so
+   `TA0CCR0` stays below the parked CCR1 software-yield channel
+   (`0xFFFF`); a farther deadline (or no deadline) just re-arms on the
+   capped wake. `d = 0` sleeps the cap and waits for a peripheral IRQ.
+3. Enter LPM atomically: a single `BIS #(LPMbits|GIE), SR` applies the
+   LPM and GIE bits together, so an interrupt that fires between the arm
+   and the sleep is taken only *after* the CPU is asleep — no lost wake.
+   The depth comes from the pm cap (LPM3 default; never LPM4 — it stops
+   ACLK and would freeze the tick).
+
+**Wake reconciliation happens in the timer ISRs**, because an early
+peripheral wake switches context to the woken task in-ISR before any
+post-sleep idle code could run:
+
+- **Planned wake** (CCR0 reached its limit): the tick handler folds the
+  full armed span via `mrtos_tick_advance(span)` and restores the
+  periodic `TA0CCR0`. The counter wrapped to a tick boundary, so phase
+  is already 0.
+- **Early wake** (a peripheral readied a task and pended the CCR1
+  yield): the yield handler unwinds from the live counter — whole ticks
+  folded, the sub-tick remainder accumulated in a static `phase_carry`
+  so the time base cannot creep slow across many short idle entries.
+
+Unlike the old LPM0 idle, idle's saved SR carries `CPUOFF`, so to make
+its loop **re-evaluate** the deadline each sleep the timer ISRs clear
+the LPM bits in idle's saved frame on any return-to-idle (identified by
+a captured idle-TCB pointer). Idle then resumes active, re-reads the
+deadline and pm cap, and re-arms — no re-sleeping on a stale SR.
+
+Measured idle floor: **single-digit µA** (≈ 1–3 µA, the LPM3 hardware
+floor), down from ~46 µA for a periodic-tick LPM3 idle. See VALIDATION.md
+T8/T8b for the on-silicon A/B and the sleep-race proof.
 
 ## 4.6 Stack budgeting on this port
 
@@ -165,4 +197,4 @@ intended ISR pattern: clear the flag, `mrtos_sem_give()`, done.
 | Kernel logic (scheduling, objects, timeouts) | executed: host suite + ISA simulator (ch. 7) |
 | `PUSHM.A`/`POPM.A` save/restore protocol, SP-in-TCB | executed in the ISA simulator via the structurally identical `msp430sim` switch |
 | Compiles/links at `-Os` on msp430-elf-gcc 9.3.1, incl. naked ISRs | verified (build runs in CI path) |
-| Hardware interrupt frame fabrication, RETI path, Timer_A config, LPM0, PORT5 ISR | **hand-checked against SLAU367 only — requires silicon** (checklist in §7.6 / VALIDATION.md) |
+| Hardware interrupt frame fabrication, RETI path, Timer_A config, LPM3 tickless idle + wake reconciliation, PORT5 ISR | **hand-checked against SLAU367 only — requires silicon** (checklist in §7.6 / VALIDATION.md) |
